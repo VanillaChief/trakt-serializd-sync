@@ -80,13 +80,15 @@ class SerializdClient:
             if not access_token:
                 return False
             
-            # Validate token
-            if not self.validate_token(access_token):
+            # Validate token and get username
+            is_valid, validated_username = self.validate_token(access_token)
+            if not is_valid:
                 self.logger.warning("Serializd token is invalid or expired")
                 return False
             
             self._load_token(access_token)
-            self._username = username
+            # Prefer username from validation, fall back to saved one
+            self._username = validated_username or username
             return True
         except (json.JSONDecodeError, KeyError) as e:
             self.logger.warning(f"Failed to load Serializd token: {e}")
@@ -110,23 +112,26 @@ class SerializdClient:
         self.token_file.write_text(json.dumps(token_data, indent=2))
         self.logger.info("Serializd token saved")
 
-    def validate_token(self, access_token: str) -> bool:
-        """Check if a token is still valid."""
+    def validate_token(self, access_token: str) -> tuple[bool, str | None]:
+        """Check if a token is still valid. Returns (is_valid, username)."""
         self._rate_limit_delay()
         
         resp = self.session.post(
             '/validateauthtoken',
-            data=json.dumps({"token": access_token}),
+            content=json.dumps({"token": access_token}),
+            headers={"Content-Type": "application/json"},
         )
         
         if not resp.is_success:
-            return False
+            return False, None
         
         try:
             data = resp.json()
-            return data.get("valid", False)
+            is_valid = data.get("isValid", False)
+            username = data.get("username")
+            return is_valid, username
         except Exception:
-            return False
+            return False, None
 
     def login(self, email: str | None = None, password: str | None = None) -> str:
         """

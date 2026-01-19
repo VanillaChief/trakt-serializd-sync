@@ -136,7 +136,7 @@ class SerializdDiaryEntry(BaseModel):
     id: int
     show_id: int = Field(alias="showId")
     season_id: int = Field(alias="seasonId")
-    season_number: int = Field(alias="seasonNumber")
+    season_number: int | None = Field(alias="seasonNumber", default=None)
     episode_number: int = Field(alias="episodeNumber")
     rating: int = 0
     review_text: str = Field(alias="reviewText", default="")
@@ -153,7 +153,7 @@ class SerializdDiaryEntry(BaseModel):
         
         return WatchActivity(
             tmdb_show_id=self.show_id,
-            season_number=self.season_number,
+            season_number=self.season_number or 0,  # Default to 0 (specials) if missing
             episode_number=self.episode_number,
             watched_at=watched_at,
             is_rewatch=self.is_rewatch,
