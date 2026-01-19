@@ -57,12 +57,14 @@ class SyncState:
                 "last_diary_at": None,
             },
             "synced_activities": [],  # List of activity keys that have been synced
+            "excluded_activities": {},  # Dict of activity keys -> exclusion reason
             "stats": {
                 "total_syncs": 0,
                 "trakt_to_serializd": 0,
                 "serializd_to_trakt": 0,
                 "conflicts_resolved": 0,
                 "errors": 0,
+                "excluded": 0,
             },
         }
 
@@ -129,8 +131,19 @@ class SyncState:
     # === Activity Ledger ===
 
     def is_synced(self, activity: WatchActivity) -> bool:
-        """Check if an activity has already been synced."""
-        return activity.key in self._state.get("synced_activities", [])
+        """Check if an activity has already been synced or excluded."""
+        return (
+            activity.key in self._state.get("synced_activities", [])
+            or activity.key in self._state.get("excluded_activities", {})
+        )
+
+    def is_excluded(self, activity: WatchActivity) -> bool:
+        """Check if an activity is permanently excluded from sync."""
+        return activity.key in self._state.get("excluded_activities", {})
+
+    def get_exclusion_reason(self, activity: WatchActivity) -> str | None:
+        """Get the reason an activity was excluded."""
+        return self._state.get("excluded_activities", {}).get(activity.key)
 
     def mark_synced(self, activity: WatchActivity) -> None:
         """Mark an activity as synced."""
@@ -153,6 +166,46 @@ class SyncState:
     def clear_synced_activities(self) -> None:
         """Clear the synced activities ledger."""
         self._state["synced_activities"] = []
+
+    # === Exclusion Management ===
+
+    def exclude_activity(
+        self,
+        activity: WatchActivity,
+        reason: str,
+    ) -> None:
+        """Permanently exclude an activity from sync with a reason."""
+        excluded = self._state.setdefault("excluded_activities", {})
+        if activity.key not in excluded:
+            excluded[activity.key] = reason
+            self.increment_stat("excluded")
+
+    def exclude_activities_batch(
+        self,
+        activities: list[WatchActivity],
+        reason: str,
+    ) -> None:
+        """Exclude multiple activities with the same reason."""
+        excluded = self._state.setdefault("excluded_activities", {})
+        for activity in activities:
+            if activity.key not in excluded:
+                excluded[activity.key] = reason
+                self.increment_stat("excluded")
+
+    def clear_exclusions(self) -> None:
+        """Clear all exclusions (use for retry after platform updates)."""
+        self._state["excluded_activities"] = {}
+
+    @property
+    def excluded_count(self) -> int:
+        """Get the number of excluded activities."""
+        return len(self._state.get("excluded_activities", {}))
+
+    def get_exclusion_summary(self) -> dict[str, int]:
+        """Get a summary of exclusions by reason."""
+        from collections import Counter
+        excluded = self._state.get("excluded_activities", {})
+        return dict(Counter(excluded.values()))
 
     @property
     def synced_count(self) -> int:
@@ -208,5 +261,7 @@ class SyncState:
                 ),
             },
             "synced_activities": self.synced_count,
+            "excluded_activities": self.excluded_count,
+            "exclusion_summary": self.get_exclusion_summary(),
             "stats": self.stats,
         }

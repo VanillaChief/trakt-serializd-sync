@@ -193,6 +193,66 @@ class SerializdClient:
             raise SerializdAuthError("Not authenticated")
         return self._username
 
+    def check_season_availability(
+        self,
+        show_id: int,
+        season_number: int,
+    ) -> tuple[bool, str | None, int | None]:
+        """
+        Check if a season is available on Serializd for logging.
+        
+        Args:
+            show_id: TMDB show ID.
+            season_number: Season number.
+        
+        Returns:
+            Tuple of (is_available, exclusion_reason, season_id).
+            If unavailable, exclusion_reason explains why.
+        """
+        # Year-based seasons (2000+) likely have no TMDB equivalent
+        if season_number >= 2000:
+            return (
+                False,
+                f"year_based_season:S{season_number}",
+                None,
+            )
+        
+        # Check cache first
+        if show_id in self._season_cache:
+            if season_number in self._season_cache[show_id]:
+                return True, None, self._season_cache[show_id][season_number]
+        
+        self._rate_limit_delay()
+        
+        resp = self.session.get(f'/show/{show_id}/season/{season_number}')
+        
+        if resp.status_code == 404:
+            return False, "season_not_found", None
+        
+        if not resp.is_success:
+            # Transient error - don't exclude
+            return False, None, None
+        
+        try:
+            data = resp.json()
+            season_id = data.get("seasonId")
+            episodes = data.get("episodes", [])
+            
+            if season_id is None:
+                return False, "season_not_on_serializd", None
+            
+            if not episodes:
+                return False, "serializd_no_episode_data", None
+            
+            # Cache the result
+            if show_id not in self._season_cache:
+                self._season_cache[show_id] = {}
+            self._season_cache[show_id][season_number] = season_id
+            
+            return True, None, season_id
+        except json.JSONDecodeError:
+            return False, None, None
+
     def get_season_id(self, show_id: int, season_number: int) -> int:
         """
         Get the Serializd internal season ID for a TMDB show and season.

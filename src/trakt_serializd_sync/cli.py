@@ -186,6 +186,8 @@ def sync(
             click.echo(f"  Serializd → Trakt: {results['serializd_to_trakt']}")
             if results['conflicts']:
                 click.echo(f"  Conflicts resolved: {results['conflicts']}")
+            if results.get('excluded'):
+                click.echo(f"  ⏭️  Excluded (incompatible): {results['excluded']}")
             if results['errors']:
                 click.echo(f"  Errors: {results['errors']}")
             
@@ -243,22 +245,51 @@ def status(ctx: click.Context) -> None:
     click.echo(f"  Errors: {stats.get('errors', 0)}")
     
     click.echo(f"\n📁 Synced activities: {status_info['synced_activities']}")
-    click.echo(f"📂 Data directory: {data_dir}")
+    
+    # Show exclusion info
+    excluded = status_info.get('excluded_activities', 0)
+    if excluded > 0:
+        click.echo(f"⏭️  Excluded activities: {excluded}")
+        exclusion_summary = status_info.get('exclusion_summary', {})
+        if exclusion_summary:
+            click.echo("   Breakdown by reason:")
+            for reason, count in sorted(exclusion_summary.items(), key=lambda x: -x[1]):
+                click.echo(f"     {reason}: {count}")
+    
+    click.echo(f"\n📂 Data directory: {data_dir}")
 
 
 @cli.command('reset-state')
 @click.option('--yes', '-y', is_flag=True, help='Skip confirmation')
+@click.option('--exclusions-only', is_flag=True, help='Only clear exclusions, keep sync history')
 @click.pass_context
-def reset_state(ctx: click.Context, yes: bool) -> None:
+def reset_state(ctx: click.Context, yes: bool, exclusions_only: bool) -> None:
     """Reset sync state (will re-sync everything on next run)."""
-    if not yes:
-        click.confirm('This will reset all sync state. Continue?', abort=True)
-    
     data_dir = ctx.obj['data_dir']
     state = SyncState(data_dir=data_dir)
-    state.reset()
     
-    click.echo("✅ Sync state reset")
+    if exclusions_only:
+        excluded_count = state.excluded_count
+        if excluded_count == 0:
+            click.echo("ℹ️  No exclusions to clear")
+            return
+        
+        if not yes:
+            click.confirm(
+                f'This will clear {excluded_count} excluded activities. '
+                'They will be re-evaluated on next sync. Continue?',
+                abort=True,
+            )
+        
+        state.clear_exclusions()
+        state.save()
+        click.echo(f"✅ Cleared {excluded_count} exclusions")
+    else:
+        if not yes:
+            click.confirm('This will reset all sync state. Continue?', abort=True)
+        
+        state.reset()
+        click.echo("✅ Sync state reset")
 
 
 if __name__ == '__main__':

@@ -57,6 +57,7 @@ class SyncEngine:
             "serializd_to_trakt": 0,
             "conflicts": 0,
             "errors": 0,
+            "excluded": 0,
         }
         
         try:
@@ -257,40 +258,94 @@ class SyncEngine:
             return 0
         
         synced = 0
+        excluded = 0
         failed = 0
-        for activity in activities:
-            try:
-                success = self.serializd.add_diary_entry(activity)
-                if success:
-                    self.state.mark_synced(activity)
-                    synced += 1
-                    self.logger.debug(
-                        f"Synced to Serializd: {activity.tmdb_show_id} "
-                        f"S{activity.season_number:02d}E{activity.episode_number:02d}"
-                    )
-                else:
-                    # API returned failure but no exception
-                    failed += 1
-                    self.logger.warning(
-                        f"⚠️  Failed to sync to Serializd (API rejected): "
-                        f"show={activity.tmdb_show_id} S{activity.season_number:02d}E{activity.episode_number:02d} "
-                        f"({activity.watched_at.strftime('%Y-%m-%d')})"
-                    )
-                    # Mark as synced to avoid retrying forever
-                    self.state.mark_synced(activity)
-            except Exception as e:
-                failed += 1
-                error_msg = str(e)
-                # Provide informative error context
-                self.logger.warning(
-                    f"⚠️  Failed to sync to Serializd: "
-                    f"show={activity.tmdb_show_id} S{activity.season_number:02d}E{activity.episode_number:02d} "
-                    f"({activity.watched_at.strftime('%Y-%m-%d')}) - {error_msg}"
-                )
-                # Mark as synced anyway to avoid retrying forever
-                self.state.mark_synced(activity)
         
-        if failed > 0:
+        # Group activities by show/season for efficient availability checking
+        # and to batch-exclude all episodes from unavailable seasons
+        from collections import defaultdict
+        by_season: dict[tuple[int, int], list[WatchActivity]] = defaultdict(list)
+        no_tmdb: list[WatchActivity] = []
+        
+        for activity in activities:
+            if activity.tmdb_show_id is None:
+                no_tmdb.append(activity)
+            else:
+                key = (activity.tmdb_show_id, activity.season_number)
+                by_season[key].append(activity)
+        
+        # Exclude activities with no TMDB ID
+        if no_tmdb:
+            self.logger.warning(
+                f"⏭️  Excluding {len(no_tmdb)} episodes: no TMDB ID (can't sync to Serializd)"
+            )
+            self.state.exclude_activities_batch(no_tmdb, "no_tmdb_id")
+            excluded += len(no_tmdb)
+        
+        # Check season availability and sync
+        for (show_id, season_num), season_activities in by_season.items():
+            # Check availability once per season
+            is_available, exclusion_reason, _season_id = (
+                self.serializd.check_season_availability(show_id, season_num)
+            )
+            
+            if not is_available and exclusion_reason:
+                # Permanent exclusion - batch exclude all episodes from this season
+                self.logger.info(
+                    f"⏭️  Excluding {len(season_activities)} episodes from "
+                    f"show {show_id} S{season_num:02d}: {exclusion_reason}"
+                )
+                self.state.exclude_activities_batch(season_activities, exclusion_reason)
+                excluded += len(season_activities)
+                continue
+            
+            if not is_available:
+                # Transient error - mark as failed but don't exclude
+                self.logger.warning(
+                    f"⚠️  Skipping {len(season_activities)} episodes from "
+                    f"show {show_id} S{season_num:02d}: transient error"
+                )
+                failed += len(season_activities)
+                continue
+            
+            # Season is available - sync each episode
+            for activity in season_activities:
+                try:
+                    success = self.serializd.add_diary_entry(activity)
+                    if success:
+                        self.state.mark_synced(activity)
+                        synced += 1
+                        self.logger.debug(
+                            f"Synced to Serializd: {activity.tmdb_show_id} "
+                            f"S{activity.season_number:02d}E{activity.episode_number:02d}"
+                        )
+                    else:
+                        # API returned failure but no exception
+                        failed += 1
+                        self.logger.warning(
+                            f"⚠️  Failed to sync to Serializd (API rejected): "
+                            f"show={activity.tmdb_show_id} S{activity.season_number:02d}E{activity.episode_number:02d} "
+                            f"({activity.watched_at.strftime('%Y-%m-%d')})"
+                        )
+                        # Mark as synced to avoid retrying forever
+                        self.state.mark_synced(activity)
+                except Exception as e:
+                    failed += 1
+                    error_msg = str(e)
+                    # Provide informative error context
+                    self.logger.warning(
+                        f"⚠️  Failed to sync to Serializd: "
+                        f"show={activity.tmdb_show_id} S{activity.season_number:02d}E{activity.episode_number:02d} "
+                        f"({activity.watched_at.strftime('%Y-%m-%d')}) - {error_msg}"
+                    )
+                    # Mark as synced anyway to avoid retrying forever
+                    self.state.mark_synced(activity)
+        
+        if excluded > 0:
+            self.logger.info(
+                f"Serializd sync: {synced} synced, {excluded} excluded (incompatible), {failed} failed"
+            )
+        elif failed > 0:
             self.logger.info(f"Serializd sync: {synced} succeeded, {failed} failed (marked as synced)")
         
         return synced

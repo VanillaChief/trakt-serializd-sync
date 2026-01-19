@@ -141,6 +141,82 @@ class TestSyncState:
         assert status['synced_activities'] == 1
         assert status['trakt']['last_fetched'] is not None
 
+    def test_exclude_activity(self, state, sample_activity):
+        """Test excluding activity with a reason."""
+        assert not state.is_excluded(sample_activity)
+        assert state.get_exclusion_reason(sample_activity) is None
+        
+        state.exclude_activity(sample_activity, "year_based_season:S2016")
+        
+        assert state.is_excluded(sample_activity)
+        assert state.is_synced(sample_activity)  # is_synced returns True for excluded
+        assert state.get_exclusion_reason(sample_activity) == "year_based_season:S2016"
+        assert state.excluded_count == 1
+
+    def test_exclude_activities_batch(self, state):
+        """Test excluding multiple activities with same reason."""
+        activities = [
+            WatchActivity(
+                tmdb_show_id=12345,
+                season_number=2016,
+                episode_number=i,
+                watched_at=datetime(2025, 1, 15, 12, 0, 0),
+                source="trakt",
+            )
+            for i in range(1, 6)
+        ]
+        
+        state.exclude_activities_batch(activities, "year_based_season:S2016")
+        
+        assert state.excluded_count == 5
+        for activity in activities:
+            assert state.is_excluded(activity)
+            assert state.is_synced(activity)
+
+    def test_exclusion_summary(self, state):
+        """Test getting exclusion summary by reason."""
+        activities = [
+            WatchActivity(
+                tmdb_show_id=101507,
+                season_number=2016,
+                episode_number=1,
+                watched_at=datetime(2025, 1, 15, 12, 0, 0),
+                source="trakt",
+            ),
+            WatchActivity(
+                tmdb_show_id=101507,
+                season_number=2016,
+                episode_number=2,
+                watched_at=datetime(2025, 1, 15, 12, 0, 0),
+                source="trakt",
+            ),
+            WatchActivity(
+                tmdb_show_id=60742,
+                season_number=0,
+                episode_number=1,
+                watched_at=datetime(2025, 1, 15, 12, 0, 0),
+                source="trakt",
+            ),
+        ]
+        
+        state.exclude_activities_batch(activities[:2], "year_based_season:S2016")
+        state.exclude_activity(activities[2], "season_not_on_serializd")
+        
+        summary = state.get_exclusion_summary()
+        
+        assert summary["year_based_season:S2016"] == 2
+        assert summary["season_not_on_serializd"] == 1
+
+    def test_clear_exclusions(self, state, sample_activity):
+        """Test clearing exclusions."""
+        state.exclude_activity(sample_activity, "test_reason")
+        assert state.excluded_count == 1
+        
+        state.clear_exclusions()
+        
+        assert state.excluded_count == 0
+        assert not state.is_excluded(sample_activity)
+
 
 class TestWatchActivity:
     def test_key_generation(self, sample_activity):
