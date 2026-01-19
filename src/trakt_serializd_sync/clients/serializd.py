@@ -312,6 +312,8 @@ class SerializdClient:
         """
         all_entries: list[SerializdDiaryEntry] = []
         page = 1
+        found_old_entry = False
+        consecutive_old_pages = 0
         
         while True:
             self._rate_limit_delay()
@@ -331,19 +333,32 @@ class SerializdClient:
                 if not reviews:
                     break
                 
+                page_has_new = False
                 for entry_data in reviews:
                     try:
                         entry = SerializdDiaryEntry(**entry_data)
                         
                         # Filter by timestamp if specified
-                        if since and entry.date_added < since:
-                            # Entries are sorted newest first, so we can stop
-                            return all_entries
+                        # NOTE: Serializd API doesn't guarantee sorted order,
+                        # so we can't stop early on first old entry
+                        if since and entry.date_added <= since:
+                            found_old_entry = True
+                            continue
                         
+                        page_has_new = True
                         all_entries.append(entry)
                     except Exception as e:
                         self.logger.warning(f"Failed to parse diary entry: {e}")
                         continue
+                
+                # Optimization: if we've found old entries and this page has no new ones,
+                # we can likely stop (but check a couple more pages to be safe)
+                if since and found_old_entry and not page_has_new:
+                    consecutive_old_pages += 1
+                    if consecutive_old_pages >= 2:
+                        break
+                else:
+                    consecutive_old_pages = 0
                 
                 total_pages = data.get("totalPages", 1)
                 if page >= total_pages:
