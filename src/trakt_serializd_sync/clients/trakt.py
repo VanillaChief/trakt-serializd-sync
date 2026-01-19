@@ -1,6 +1,8 @@
 # AI-generated: Trakt API client with bidirectional sync support
 """Trakt API client for authentication and data sync."""
 
+from __future__ import annotations
+
 import json
 import logging
 import time

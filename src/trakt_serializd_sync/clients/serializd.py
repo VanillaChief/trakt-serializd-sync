@@ -1,6 +1,8 @@
 # AI-generated: Serializd API client with bidirectional sync support
 """Serializd API client for authentication and data sync."""
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -131,8 +133,8 @@ class SerializdClient:
         Log in to Serializd with email/password.
         
         Args:
-            email: Account email (or from SERIALIZD_EMAIL env var).
-            password: Account password (or from SERIALIZD_PASSWORD env var).
+            email: Account email (or from ~/keys/trakt-serializd-sync.env).
+            password: Account password (or from ~/keys/trakt-serializd-sync.env).
         
         Returns:
             Access token.
@@ -140,13 +142,18 @@ class SerializdClient:
         Raises:
             SerializdAuthError: If login fails.
         """
-        email = email or os.environ.get("SERIALIZD_EMAIL")
-        password = password or os.environ.get("SERIALIZD_PASSWORD")
+        # Import here to avoid circular imports
+        from trakt_serializd_sync.config import get_serializd_credentials
+        
+        if not email or not password:
+            env_email, env_password = get_serializd_credentials()
+            email = email or env_email
+            password = password or env_password
         
         if not email or not password:
             raise SerializdAuthError(
                 "Email and password required. "
-                "Set SERIALIZD_EMAIL and SERIALIZD_PASSWORD environment variables."
+                "Set SERIALIZD_EMAIL and SERIALIZD_PASSWORD in ~/keys/trakt-serializd-sync.env"
             )
         
         self._rate_limit_delay()

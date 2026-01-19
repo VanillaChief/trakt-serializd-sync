@@ -1,6 +1,8 @@
 # AI-generated: Sync state management for bidirectional sync
 """State management for tracking sync progress between platforms."""
 
+from __future__ import annotations
+
 import json
 import logging
 from datetime import datetime

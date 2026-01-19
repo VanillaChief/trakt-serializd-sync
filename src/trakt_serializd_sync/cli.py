@@ -1,6 +1,8 @@
 # AI-generated: Click CLI for trakt-serializd-sync
 """Command-line interface for trakt-serializd-sync."""
 
+from __future__ import annotations
+
 import json
 import logging
 import sys
@@ -19,16 +21,32 @@ from trakt_serializd_sync.models import ConflictStrategy, SyncDirection
 from trakt_serializd_sync.state import SyncState
 from trakt_serializd_sync.sync import SyncEngine
 
+# Named logger for CLI module
+logger = logging.getLogger("trakt_serializd_sync.cli")
+
 
 def setup_logging(verbose: bool = False) -> None:
-    """Configure logging."""
+    """Configure logging with named loggers per module."""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    
+    # Create formatter
+    formatter = logging.Formatter(
+        fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
     )
-    # Quiet httpx
+    
+    # Configure root logger for our package
+    root_logger = logging.getLogger("trakt_serializd_sync")
+    root_logger.setLevel(level)
+    
+    # Add console handler if not already present
+    if not root_logger.handlers:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(level)
+        console_handler.setFormatter(formatter)
+        root_logger.addHandler(console_handler)
+    
+    # Quiet noisy libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 

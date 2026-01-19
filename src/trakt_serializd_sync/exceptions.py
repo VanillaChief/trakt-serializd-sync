@@ -1,6 +1,8 @@
 # AI-generated: Core exception classes for the sync tool
 """Custom exceptions for trakt-serializd-sync."""
 
+from __future__ import annotations
+
 
 class SyncError(Exception):
     """Base exception for sync-related errors."""

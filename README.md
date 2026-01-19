@@ -37,7 +37,16 @@ trakt-serializd-sync auth trakt
 trakt-serializd-sync auth serializd
 ```
 
-### Environment variables (optional)
+### Configuration (optional)
+
+Create `~/keys/trakt-serializd-sync.env` with your credentials:
+
+```bash
+cp env.example ~/keys/trakt-serializd-sync.env
+# Edit the file with your Serializd credentials
+```
+
+Or export environment variables:
 
 ```bash
 export SERIALIZD_EMAIL="your@email.com"

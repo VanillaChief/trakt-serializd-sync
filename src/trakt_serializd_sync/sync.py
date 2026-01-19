@@ -1,6 +1,8 @@
 # AI-generated: Core sync engine with conflict resolution
 """Sync engine for bidirectional sync between Trakt and Serializd."""
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from typing import Callable
@@ -8,6 +10,7 @@ from typing import Callable
 from trakt_serializd_sync.clients import SerializdClient, TraktClient
 from trakt_serializd_sync.exceptions import SyncError
 from trakt_serializd_sync.models import ConflictStrategy, SyncDirection, WatchActivity
+from trakt_serializd_sync.retry import retry_with_backoff
 from trakt_serializd_sync.state import SyncState
 
 
@@ -126,6 +129,7 @@ class SyncEngine:
             self.state.save()
             raise SyncError(f"Sync failed: {e}") from e
 
+    @retry_with_backoff(max_retries=3)
     def _fetch_trakt_activities(self) -> list[WatchActivity]:
         """Fetch watch activities from Trakt."""
         # Use incremental fetch if we have a previous sync timestamp
@@ -154,6 +158,7 @@ class SyncEngine:
         
         return activities
 
+    @retry_with_backoff(max_retries=3)
     def _fetch_serializd_activities(self) -> list[WatchActivity]:
         """Fetch watch activities from Serializd diary."""
         # Use incremental fetch if we have a previous sync timestamp
