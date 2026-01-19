@@ -129,6 +129,15 @@ class SerializdSeasonInfo(BaseModel):
     episode_count: int = Field(alias="episodeCount", default=0)
 
 
+class SerializdDiarySeasonInfo(BaseModel):
+    """Season info from Serializd diary showSeasons array."""
+    model_config = {"populate_by_name": True}
+    
+    id: int
+    season_number: int = Field(alias="seasonNumber")
+    name: str = ""
+
+
 class SerializdDiaryEntry(BaseModel):
     """A diary entry from Serializd."""
     model_config = {"populate_by_name": True}
@@ -136,13 +145,21 @@ class SerializdDiaryEntry(BaseModel):
     id: int
     show_id: int = Field(alias="showId")
     season_id: int = Field(alias="seasonId")
-    season_number: int | None = Field(alias="seasonNumber", default=None)
     episode_number: int = Field(alias="episodeNumber")
+    show_seasons: list[SerializdDiarySeasonInfo] = Field(alias="showSeasons", default_factory=list)
     rating: int = 0
     review_text: str = Field(alias="reviewText", default="")
     is_rewatch: bool = Field(alias="isRewatch", default=False)
     date_added: datetime = Field(alias="dateAdded")
     backdate: datetime | None = None
+    
+    @property
+    def season_number(self) -> int:
+        """Get season number by looking up season_id in showSeasons."""
+        for season in self.show_seasons:
+            if season.id == self.season_id:
+                return season.season_number
+        return 0  # Default to specials if not found
     
     def to_activity(self) -> WatchActivity:
         """Convert to a WatchActivity for syncing."""
@@ -153,7 +170,7 @@ class SerializdDiaryEntry(BaseModel):
         
         return WatchActivity(
             tmdb_show_id=self.show_id,
-            season_number=self.season_number or 0,  # Default to 0 (specials) if missing
+            season_number=self.season_number,
             episode_number=self.episode_number,
             watched_at=watched_at,
             is_rewatch=self.is_rewatch,
