@@ -1,0 +1,31 @@
+[Unit]
+Description=Trakt-Serializd Sync Service
+Documentation=https://github.com/VanillaChief/trakt-serializd-sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vanilla_chief
+Group=vanilla_chief
+
+# Working directory
+WorkingDirectory=/home/vanilla_chief/customscripts/trakt-serializd-sync
+
+# Run the sync in watch mode
+ExecStart=/home/vanilla_chief/customscripts/trakt-serializd-sync/venv/bin/trakt-serializd-sync sync --watch --interval 15
+
+# Restart on failure
+Restart=on-failure
+RestartSec=30
+
+# Environment
+Environment="PATH=/home/vanilla_chief/customscripts/trakt-serializd-sync/venv/bin:/usr/local/bin:/usr/bin"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trakt-serializd-sync
+
+[Install]
+WantedBy=multi-user.target
