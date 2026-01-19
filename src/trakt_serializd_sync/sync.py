@@ -257,6 +257,7 @@ class SyncEngine:
             return 0
         
         synced = 0
+        failed = 0
         for activity in activities:
             try:
                 success = self.serializd.add_diary_entry(activity)
@@ -267,8 +268,30 @@ class SyncEngine:
                         f"Synced to Serializd: {activity.tmdb_show_id} "
                         f"S{activity.season_number:02d}E{activity.episode_number:02d}"
                     )
+                else:
+                    # API returned failure but no exception
+                    failed += 1
+                    self.logger.warning(
+                        f"⚠️  Failed to sync to Serializd (API rejected): "
+                        f"show={activity.tmdb_show_id} S{activity.season_number:02d}E{activity.episode_number:02d} "
+                        f"({activity.watched_at.strftime('%Y-%m-%d')})"
+                    )
+                    # Mark as synced to avoid retrying forever
+                    self.state.mark_synced(activity)
             except Exception as e:
-                self.logger.error(f"Failed to sync {activity.key} to Serializd: {e}")
+                failed += 1
+                error_msg = str(e)
+                # Provide informative error context
+                self.logger.warning(
+                    f"⚠️  Failed to sync to Serializd: "
+                    f"show={activity.tmdb_show_id} S{activity.season_number:02d}E{activity.episode_number:02d} "
+                    f"({activity.watched_at.strftime('%Y-%m-%d')}) - {error_msg}"
+                )
+                # Mark as synced anyway to avoid retrying forever
+                self.state.mark_synced(activity)
+        
+        if failed > 0:
+            self.logger.info(f"Serializd sync: {synced} succeeded, {failed} failed (marked as synced)")
         
         return synced
 
@@ -281,27 +304,55 @@ class SyncEngine:
         if not activities:
             return 0
         
+        added = 0
+        failed_ratings = 0
+        
         try:
             # Batch add to history
             result = self.trakt.add_to_history(activities)
             added = result.get("added", {}).get("episodes", 0)
+            not_found = result.get("not_found", {}).get("episodes", [])
             
-            # Sync ratings separately
-            for activity in activities:
-                if activity.rating is not None:
+            if not_found:
+                self.logger.warning(
+                    f"⚠️  Trakt couldn't find {len(not_found)} episodes - "
+                    f"possibly missing from TMDB or wrong IDs"
+                )
+                for ep in not_found[:5]:  # Show first 5
+                    ids = ep.get("ids", {})
+                    self.logger.warning(f"    Not found: {ids}")
+            
+            # Mark all as synced (even not_found to avoid retrying forever)
+            self.state.mark_synced_batch(activities)
+            
+        except Exception as e:
+            self.logger.warning(
+                f"⚠️  Failed to batch sync {len(activities)} episodes to Trakt: {e}"
+            )
+            # Mark all as synced anyway to avoid retrying forever
+            self.state.mark_synced_batch(activities)
+            return 0
+        
+        # Sync ratings separately with individual error handling
+        for activity in activities:
+            if activity.rating is not None:
+                try:
                     self.trakt.add_rating(
                         tmdb_show_id=activity.tmdb_show_id,
                         season=activity.season_number,
                         episode=activity.episode_number,
                         rating=activity.rating,
                     )
-            
-            # Mark all as synced
-            self.state.mark_synced_batch(activities)
-            
-            self.logger.info(f"Synced {added} episodes to Trakt")
-            return added
-            
-        except Exception as e:
-            self.logger.error(f"Failed to sync to Trakt: {e}")
-            return 0
+                except Exception as e:
+                    failed_ratings += 1
+                    self.logger.warning(
+                        f"⚠️  Failed to sync rating to Trakt: "
+                        f"show={activity.tmdb_show_id} S{activity.season_number:02d}E{activity.episode_number:02d} "
+                        f"rating={activity.rating} - {e}"
+                    )
+        
+        if failed_ratings > 0:
+            self.logger.info(f"Trakt ratings: {failed_ratings} failed to sync")
+        
+        self.logger.info(f"Synced {added} episodes to Trakt")
+        return added
